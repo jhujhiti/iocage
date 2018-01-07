@@ -123,6 +123,7 @@ class IOCStart(object):
         sysvshm = self.conf["sysvshm"]
         bpf = self.conf["bpf"]
         dhcp = self.conf["dhcp"]
+        release = self.conf["release"]
         prop_missing = False
 
         if dhcp == "on":
@@ -283,6 +284,7 @@ class IOCStart(object):
                            f"allow.mount.zfs={allow_mount_zfs}",
                            f"allow.quotas={allow_quotas}",
                            f"allow.socket_af={allow_socket_af}",
+                           f"osrelease={release}",
                            f"exec.prestart={exec_prestart}",
                            f"exec.poststart={exec_poststart}",
                            f"exec.prestop={exec_prestop}",
