@@ -142,6 +142,10 @@ def cli(**kwargs):
     _file = kwargs.get("_file", False)
 
     if release is not None:
+        if release.lower() == "latest":
+            release = ioc_common.parse_latest_release()
+            kwargs["release"] = release
+
         try:
             release = float(release.rsplit("-", 1)[0].rsplit("-", 1)[0])
         except ValueError:

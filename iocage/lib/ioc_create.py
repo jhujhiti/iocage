@@ -176,6 +176,8 @@ class IOCCreate(object):
             else:
                 clone_config = f"{self.iocroot}/jails/{jail_uuid}/config.json"
                 clone_fstab = f"{self.iocroot}/jails/{jail_uuid}/fstab"
+                clone_etc_hosts = \
+                    f"{self.iocroot}/jails/{jail_uuid}/root/etc/hosts"
 
         jail = f"{self.pool}/iocage/jails/{jail_uuid}/root"
 
@@ -325,10 +327,39 @@ class IOCCreate(object):
 
             iocjson.json_write(config)
 
-        # Just "touch" the fstab file, since it won't exist.
+        # Just "touch" the fstab file, since it won't exist and write
+        # /etc/hosts
+        etc_hosts_ip_addr = config["ip4_addr"].split("|", 1)[-1]
+
+        try:
+            jail_uuid_short = jail_uuid.rsplit(".")[-2]
+            jail_hostname = \
+                f"{jail_uuid}\t{jail_uuid_short}"
+        except IndexError:
+            # They supplied just a normal tag
+            jail_uuid_short = jail_uuid
+            jail_hostname = jail_uuid
+
+        final_line = f"{etc_hosts_ip_addr}\t{jail_hostname}\n"
 
         if not self.clone:
             open(f"{location}/fstab", "wb").close()
+
+            with open(f"{location}/root/etc/hosts", "r") as _etc_hosts:
+                with iocage.lib.ioc_common.open_atomic(
+                        f"{location}/root/etc/hosts", "w") as etc_hosts:
+                    # open_atomic will empty the file, we need these still.
+
+                    for line in _etc_hosts.readlines():
+                        if line.startswith("127.0.0.1"):
+                            line = f"{line.rstrip()} {jail_uuid_short}\n"
+
+                        etc_hosts.write(line)
+                    else:
+                        # We want their IP to have the hostname at the end
+
+                        if config["ip4_addr"] != "none":
+                            etc_hosts.write(final_line)
         else:
             with open(clone_fstab, "r") as _clone_fstab:
                 with iocage.lib.ioc_common.open_atomic(
@@ -338,10 +369,18 @@ class IOCCreate(object):
                     for line in _clone_fstab.readlines():
                         _fstab.write(line.replace(clone_uuid, jail_uuid))
 
+            with open(clone_etc_hosts, "r") as _clone_etc_hosts:
+                with iocage.lib.ioc_common.open_atomic(
+                        clone_etc_hosts, "w") as etc_hosts:
+                    # open_atomic will empty the file, we need these still.
+
+                    for line in _clone_etc_hosts.readlines():
+                        etc_hosts.write(line.replace(clone_uuid, jail_uuid))
+
         if not self.empty:
             self.create_rc(location, config["host_hostname"])
 
-        if self.basejail:
+        if self.basejail or self.plugin:
             basedirs = ["bin", "boot", "lib", "libexec", "rescue", "sbin",
                         "usr/bin", "usr/include", "usr/lib",
                         "usr/libexec", "usr/sbin", "usr/share",
@@ -493,7 +532,7 @@ class IOCCreate(object):
             silent=self.silent)
         # To avoid a user being prompted about pkg.
         su.Popen(["pkg-static", "-j", jid, "install", "-q", "-y",
-                  "pkg"], stderr=su.PIPE).communicate()
+                  "pkg"], stdout=su.DEVNULL, stderr=su.DEVNULL).communicate()
 
         # We will have mismatched ABI errors from earlier, this is to be safe.
         os.environ["ASSUME_ALWAYS_YES"] = "yes"
@@ -526,18 +565,18 @@ class IOCCreate(object):
                 _callback=self.callback,
                 silent=self.silent)
             cmd = ("pkg", "install", "-q", "-y", pkg)
-            pkg_install, pkg_err = iocage.lib.ioc_exec.IOCExec(
+
+            pkg_stdout, pkg_stderr, pkg_err = iocage.lib.ioc_exec.IOCExec(
                 cmd, jail_uuid, location, plugin=self.plugin,
                 exit_on_error=self.exit_on_error,
-                silent=self.silent).exec_jail()
+                silent=self.silent, msg_err_return=True).exec_jail()
 
             if pkg_err:
                 iocage.lib.ioc_common.logit({
                     "level": "ERROR",
-                    "message": f"{pkg_err.decode()}"
+                    "message": f"{pkg_stderr.decode()}"
                 },
-                    _callback=self.callback,
-                    silent=self.silent)
+                    _callback=self.callback)
                 err = True
 
         os.remove(f"{location}/root/etc/resolv.conf")

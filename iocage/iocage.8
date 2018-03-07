@@ -1,4 +1,4 @@
-.Dd September 5, 2017
+.Dd February 27, 2018
 .Dt IOCAGE 8
 .Os
 .Sh NAME
@@ -48,6 +48,7 @@
 .Op Fl n | -name Ar TEXT
 .Op Fl p | -pkglist Ar TEXT
 .Op Fl r | -release Ar TEXT
+.Op Fl r | -release Cm latest | Cm LATEST
 .Op Fl s | -short
 .Op Fl t | -template Ar TEXT
 .Op Fl u | -uuid | Ar TEXT
@@ -98,7 +99,7 @@
 .Op Fl h | -http
 .Op Fl n | -name TEXT
 .Op Fl p | -password
-.Op Fl r | -release
+.Op Fl r | -release | Cm latest | Cm LATEST
 .Op Fl s | -server
 .Op Fl u | -user
 .\" == FSTAB ==
@@ -122,6 +123,8 @@
 .Op Fl a | -all
 .Op Fl p | -pool
 .Op Fl r | -recursive
+.Op Fl s | Cm state
+.Op Fl j | Cm JID
 .\" == IMPORT ==
 .Nm
 .Cm import
@@ -382,6 +385,8 @@ Specify a JSON file which manages the installation of each
 package in the newly created jail.
 .It Op Fl r | -release Ar TEXT
 Specify which RELEASE to use for the new jail.
+.It Op Fl r | -release Cm latest | Cm LATEST
+Creat a new jail with the latest release available.
 .It Op Fl s | -short
 Use a short UUID of 8 characters instead of the default 36.
 .It Op Fl t | -template Ar TEXT
@@ -488,7 +493,15 @@ UUID/NAME wrapper for
 After invoking
 .Cm exec ,
 specify the jail, any commands to run inside that jail, and any
-arguments for those commands.
+arguments for those commands. 
+.Xr jexec
+also runs commands similar to 
+.Nm .
+When using
+.Xr jexec
+use the JID instead of the jail name.
+For more info see the manual page for 
+.Xr jexec .
 .Pp
 Options:
 .Bl -tag -width "[-u | --host_user NAME]"
@@ -565,8 +578,8 @@ Enable verifying the SSL cert for HTTP fetching.
 Specifies the authentication method for HTTP fetching.
 Current values are basic and digest.
 .It Op Fl c | -count Ar TEXT
-Used when fetching a plugin. This option creates the designated
-number of plugin type jails.
+Used when fetching a plugin.
+This option creates the designated number of plugin type jails.
 .It Op Fl d | -root-dir Ar TEXT
 Specify the root directory containing all RELEASE files.
 .It Op Fl f | -file
@@ -580,10 +593,12 @@ used this to adjust
 to define an HTTP server.
 .It Op Fl p | -password Ar TEXT
 Add a password, if required.
-.It Op Fl r |-release Ar TEXT
+.It Op Fl r | -release Ar TEXT
 Define the
 .Fx
 release to fetch.
+.It Op Fl r Cm latest | Cm LATEST
+Fetches the latest release.
 .It Op Fl s | -server Ar TEXT
 Define the server from which to fetch the RELEASE.
 .It Op Fl u | -user Ar TEXT
@@ -612,6 +627,10 @@ Newly created jails or basejails are automatically updated.
 .Pp
 This disables the end of life check, then fetches the FreeBSD 11.0
 release and updates with the latest patches.
+.Pp
+.Dl # iocage fetch -r LATEST
+.Pp
+This fetches the latest release available.
 .\" == FSTAB ==
 .It Cm fstab
 Manipulates the fstab settings of a specific jail.
@@ -663,6 +682,10 @@ If accessing a nested key, use "." as a separator.
 Get the currently activated zpool.
 .It Op Fl r | -recursive
 Get the specified property for all jails.
+.It Op Fl s | Cm state
+Return the state of the jail.
+.It Op Fl j | Cm JID
+Return the JID.
 .El
 .Pp
 Examples:
@@ -681,6 +704,10 @@ through
 .Pp
 Displays a table with each jail's UUID or NAME and the
 status of the requested property.
+.Pp
+.Dl # iocage get -s examplejail_1
+.Pp
+Return whether the state of the jail is up or down.
 .Pp
 .\" == IMPORT ==
 .It Cm import
@@ -1561,7 +1588,8 @@ jail functionality added to them.
 .Pp
 Default: 0
 .Pp
-Source: .Xr jail 8
+Source:
+.Xr jail 8
 .It host_hostuuid=UUID
 .Pp
 Default: UUID
@@ -1752,6 +1780,14 @@ Default: off
 .Pp
 Source:
 .Xr cpuset 1
+.It vnet.interface
+A network interface to give to a vnet-enabled jail after it is created.
+The interface will automatically be released when the jail is removed.
+.Pp
+Defualt: none
+.Pp
+Source:
+.Xr jail(8)
 .El
 .Sh EXAMPLES
 Set up
@@ -1791,7 +1827,7 @@ Import package on another host:
 iocage import UUID
 .Ed
 .Sh HINTS
-By defaut,
+By default,
 .Nm
 doesn't have colors enabled.
 Set the environment variable IOCAGE_COLOR=TRUE to enable this

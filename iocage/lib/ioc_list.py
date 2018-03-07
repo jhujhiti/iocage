@@ -172,7 +172,7 @@ class IOCList(object):
             try:
                 short_ip4 = full_ip4.split("|")[1].split("/")[0]
             except IndexError:
-                short_ip4 = "-"
+                short_ip4 = full_ip4 if full_ip4 != "none" else "-"
 
             boot = conf["boot"]
             jail_type = conf["type"]
@@ -216,6 +216,11 @@ class IOCList(object):
 
             if conf["dhcp"] == "on" and status and os.geteuid() == 0:
                 interface = conf["interfaces"].split(",")[0].split(":")[0]
+
+                if interface == "vnet0":
+                    # Inside jails they are epairNb
+                    interface = f"{interface.replace('vnet', 'epair')}b"
+
                 short_ip4 = "DHCP"
                 full_ip4_cmd = ["jexec", f"ioc-{uuid}", "ifconfig",
                                 interface, "inet"]
@@ -232,7 +237,7 @@ class IOCList(object):
             # Append the JID and the NAME to the table
 
             if self.full and self.plugin:
-                if jail_type != "plugin":
+                if jail_type != "plugin" and jail_type != "pluginv2":
                     # We only want plugin type jails to be apart of the
                     # list
 

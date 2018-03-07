@@ -39,6 +39,7 @@ import iocage.lib.ioc_exec
 import iocage.lib.ioc_list
 import iocage.lib.ioc_stop
 import libzfs
+import netifaces
 
 
 def _get_pool_and_iocroot():
@@ -366,6 +367,17 @@ class IOCJson(object):
                             self.location = f"{iocroot}/jails/{short_uuid}"
                             skip = True
 
+                    if uuid is None:
+                        iocage.lib.ioc_common.logit(
+                            {
+                                "level": "EXCEPTION",
+                                "message": "Configuration could not be loaded,"
+                                " is the jail dataset mounted?"
+                            },
+                            exit_on_error=self.exit_on_error,
+                            _callback=self.callback,
+                            silent=self.silent)
+
                     self.json_convert_from_zfs(uuid, skip=skip)
                     with open(self.location + "/config.json", "r") as conf:
                         conf = json.load(conf)
@@ -505,14 +517,6 @@ class IOCJson(object):
                         raise RuntimeError("Run as root to automatically "
                                            "activate the first zpool!")
 
-                    if zpool == "freenas-boot":
-                        try:
-                            zpool = zpools[1]
-                        except IndexError:
-                            raise RuntimeError("Please specify a pool to "
-                                               "activate with iocage activate "
-                                               "POOL")
-
                     if os.environ["IOCAGE_SKIP"] == "TRUE":
                         iocage.lib.ioc_common.logit(
                             {
@@ -525,6 +529,14 @@ class IOCJson(object):
                             },
                             _callback=self.callback,
                             silent=self.silent)
+
+                    if zpool == "freenas-boot":
+                        try:
+                            zpool = zpools[1]
+                        except IndexError:
+                            raise RuntimeError("Please specify a pool to "
+                                               "activate with iocage activate "
+                                               "POOL")
 
                     iocage.lib.ioc_common.logit(
                         {
@@ -639,64 +651,64 @@ class IOCJson(object):
 
                 if value == "yes":
                     try:
-                        try:
-                            jail_zfs_dataset = f"{pool}/" \
-                                f"{conf['jail_zfs_dataset']}"
-                            self.zfs_set_property(jail_zfs_dataset, "jailed",
-                                                  "off")
-                        except libzfs.ZFSException as err:
-                            # The dataset doesn't exist, that's OK
+                        jail_zfs_dataset = f"{pool}/" \
+                            f"{conf['jail_zfs_dataset']}"
+                        self.zfs_set_property(jail_zfs_dataset, "jailed",
+                                                "off")
+                    except libzfs.ZFSException as err:
+                        # The dataset doesn't exist, that's OK
 
-                            if err.code == libzfs.Error.NOENT:
-                                pass
-                            else:
-                                # Danger, Will Robinson!
-                                raise
+                        if err.code == libzfs.Error.NOENT:
+                            pass
+                        else:
+                            iocage.lib.ioc_common.logit(
+                                {
+                                    "level": "EXCEPTION",
+                                    "message": err
+                                },
+                                _callback=self.callback)
 
+                    try:
                         self.zfs.get_dataset(old_location).rename(new_location)
-                        conf["type"] = "template"
-
-                        self.location = new_location.lstrip(pool).replace(
-                            "/iocage", iocroot)
-
+                    except libzfs.ZFSException as err:
+                        # cannot rename
                         iocage.lib.ioc_common.logit(
                             {
-                                "level": "INFO",
-                                "message": f"{uuid} converted to a template."
+                                "level": "EXCEPTION",
+                                "message": f"Cannot rename zfs dataset: {err}"
                             },
-                            _callback=self.callback,
-                            silent=self.silent)
+                            _callback=self.callback)
 
-                        # Writing these now since the dataset will be readonly
-                        self.json_check_prop(key, value, conf)
-                        self.json_write(conf)
+                    conf["type"] = "template"
 
-                        iocage.lib.ioc_common.logit(
-                            {
-                                "level":
-                                "INFO",
-                                "message":
-                                f"Property: {key} has been updated to {value}"
-                            },
-                            _callback=self.callback,
-                            silent=self.silent)
+                    self.location = new_location.lstrip(pool).replace(
+                        "/iocage", iocroot)
 
-                        self.zfs_set_property(new_location, "readonly", "on")
+                    iocage.lib.ioc_common.logit(
+                        {
+                            "level": "INFO",
+                            "message": f"{uuid} converted to a template."
+                        },
+                        _callback=self.callback,
+                        silent=self.silent)
 
-                        return
-                    except libzfs.ZFSException:
-                        iocage.lib.ioc_common.logit(
-                            {
-                                "level":
-                                "EXCEPTION",
-                                "message":
-                                "A template by that name already"
-                                " exists!"
-                            },
-                            exit_on_error=self.exit_on_error,
-                            _callback=self.callback,
-                            silent=self.silent)
+                    # Writing these now since the dataset will be readonly
+                    self.json_check_prop(key, value, conf)
+                    self.json_write(conf)
 
+                    iocage.lib.ioc_common.logit(
+                        {
+                            "level":
+                            "INFO",
+                            "message":
+                            f"Property: {key} has been updated to {value}"
+                        },
+                        _callback=self.callback,
+                        silent=self.silent)
+
+                    self.zfs_set_property(new_location, "readonly", "on")
+
+                    return
                 elif value == "no":
                     if not _import:
                         self.zfs.get_dataset(new_location).rename(old_location)
@@ -719,7 +731,7 @@ class IOCJson(object):
                 conf = json.load(default_json)
 
         if not default:
-            self.json_check_prop(key, value, conf)
+            value, conf = self.json_check_prop(key, value, conf)
             self.json_write(conf)
             iocage.lib.ioc_common.logit(
                 {
@@ -742,11 +754,26 @@ class IOCJson(object):
                             "ip6.addr":
 
                         return
+
                     try:
                         ip = True if key == "ip4.addr" or key == "ip6.addr" \
                             else False
 
                         if ip and value.lower() == "none":
+                            return
+
+                        if key == "vnet":
+                            # We can't switch vnet dynamically
+                            iocage.lib.ioc_common.logit(
+                                {
+                                    "level":
+                                    "INFO",
+                                    "message":
+                                    "vnet changes require a jail restart"
+                                },
+                                _callback=self.callback,
+                                silent=self.silent)
+
                             return
 
                         iocage.lib.ioc_common.checkoutput(
@@ -783,7 +810,7 @@ class IOCJson(object):
     @staticmethod
     def json_get_version():
         """Sets the iocage configuration version."""
-        version = "9"
+        version = "10"
 
         return version
 
@@ -961,6 +988,15 @@ class IOCJson(object):
         conf["dhcp"] = dhcp
         conf["bpf"] = bpf
 
+        # Version 10 keys
+        try:
+            vnet_interfaces = conf["vnet_interfaces"]
+        except KeyError:
+            vnet_interfaces = "none"
+
+        # Set all keys, even if it's the same value.
+        conf["vnet_interfaces"] = vnet_interfaces
+
         # Set all keys, even if it's the same value.
         conf["CONFIG_VERSION"] = self.json_get_version()
 
@@ -1082,6 +1118,7 @@ class IOCJson(object):
             "allow_mount_zfs": ("0", "1"),
             "allow_quotas": ("0", "1"),
             "allow_socket_af": ("0", "1"),
+            "vnet_interfaces": ("string", ),
             # RCTL limits
             "cpuset": ("off", "on"),
             "rlimits": ("off", "on"),
@@ -1169,10 +1206,23 @@ class IOCJson(object):
 
             for k in props[key]:
                 if k in value:
-                    return
+                    return value, conf
 
             if props[key][0] == "string":
-                return
+                if key == "ip4_addr":
+                    try:
+                        interface, ip = value.split("|")
+
+                        if interface == "DEFAULT":
+                            gws = netifaces.gateways()
+                            def_iface = gws["default"][netifaces.AF_INET][1]
+
+                            value = f"{def_iface}|{ip}"
+                            conf[key] = value
+                    except ValueError:
+                        pass
+
+                return value, conf
             else:
                 err = f"{value} is not a valid value for {key}.\n"
 
@@ -1202,7 +1252,7 @@ class IOCJson(object):
                 if key not in conf.keys():
                     msg = f"{key} is not a valid property!"
                 else:
-                    return
+                    return value, conf
 
             iocage.lib.ioc_common.logit(
                 {
@@ -1219,8 +1269,16 @@ class IOCJson(object):
                     settings:
                 settings = json.load(settings)
         except FileNotFoundError:
-            raise RuntimeError(
-                f"No settings.json exists in {self.location}/plugin!")
+            msg = f"No settings.json exists in {self.location}/plugin!"
+
+            iocage.lib.ioc_common.logit(
+                {
+                    "level": "EXCEPTION",
+                    "message": msg
+                },
+                exit_on_error=self.exit_on_error,
+                _callback=self.callback,
+                silent=self.silent)
 
         return settings
 
@@ -1252,12 +1310,22 @@ class IOCJson(object):
                         uuid,
                         _path,
                         plugin=True,
+                        msg_return=True,
                         exit_on_error=self.exit_on_error,
                         silent=True).exec_jail()
             else:
                 return settings
         except KeyError:
-            raise RuntimeError(f"Key: \"{prop_error}\" does not exist!")
+            msg = f"Key: \"{prop_error}\" does not exist!"
+
+            iocage.lib.ioc_common.logit(
+                {
+                    "level": "EXCEPTION",
+                    "message": msg
+                },
+                exit_on_error=self.exit_on_error,
+                _callback=self.callback,
+                silent=self.silent)
 
     def json_plugin_set_value(self, prop):
         pool, iocroot = _get_pool_and_iocroot()
@@ -1430,10 +1498,13 @@ class IOCJson(object):
                             f"{jail_parent_ds}@{tag}", recursive=True)
                     except libzfs.ZFSException as err:
                         if err.code == libzfs.Error.EXISTS:
+                            err_msg = \
+                                f"Snapshot {jail_parent_ds}@{tag} already" \
+                                " exists!"
                             iocage.lib.ioc_common.logit(
                                 {
                                     "level": "EXCEPTION",
-                                    "message": "Snapshot already exists!"
+                                    "message": err_msg
                                 },
                                 exit_on_error=self.exit_on_error,
                                 _callback=self.callback,
