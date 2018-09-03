@@ -23,7 +23,7 @@ To install using binary packages, simply run: `pkg install py36-iocage`
 
 The FreeBSD source tree ***must*** be located at `$SRC_BASE` (`/usr/src` by default) to build from git.
 
-- `pkg install python36 git-lite libgit2 cython3 py36-pip`
+- `pkg install python36 git-lite libgit2 py36-cython py36-pip`
 - `git clone --recursive https://github.com/iocage/iocage`
 - `make install` as root
 
@@ -52,6 +52,7 @@ This repository replaces `iocage_legacy`. To upgrade to the current version:
 
 - This is beta quality software, there be dragons! Please report them.
 - Some features of the previous iocage_legacy are either being dropped or simply not ported yet, feel free to open an issue asking about your favorite feature. But please search before opening a new one. PR's welcome for any feature you want!
+- **[iocage Project Webside](https://iocage.github.io/)**
 - **[DOCUMENTATION](http://iocage.readthedocs.org/en/latest/index.html)**
 - **[Mailing list](https://groups.google.com/forum/#!forum/iocage)**
 
